@@ -1,0 +1,6 @@
+include: package:lints/core.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - .dart_tool/**

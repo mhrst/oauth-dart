@@ -1,0 +1,16 @@
+name: oauth_dart
+description: Shared Google OAuth token and scope management for Dart CLIs.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  crypto: ^3.0.7
+  googleapis_auth: ^2.0.0
+  http: ^1.6.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.15
