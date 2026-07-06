@@ -8,11 +8,6 @@ import 'package:crypto/crypto.dart';
 import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
 
-enum GoogleOAuthConsentMode {
-  standard,
-  offlinePkce,
-}
-
 class ManagedAuthClient {
   ManagedAuthClient({
     required this.client,
@@ -45,41 +40,70 @@ class GoogleOAuthAuthorizationRequiredException implements Exception {
   final String consentDescription;
 
   String get message => '$reason Google OAuth reauthorization is required for '
-      '$consentDescription. Refresh the cached token at $tokenPath, then retry.';
+      '$consentDescription. Regenerate the private auth file at $tokenPath, '
+      'then retry.';
 
   @override
   String toString() => message;
 }
 
-final class GoogleOAuthClientFactory {
-  GoogleOAuthClientFactory({
+final class GoogleOAuthPrivateAuth {
+  const GoogleOAuthPrivateAuth({
     required this.clientId,
-    required this.tokenStoreFile,
-    this.allowUserConsent = true,
-    this.forceConsent = false,
-    this.listenPort = 0,
-    this.hostedDomain,
-    this.consentMode = GoogleOAuthConsentMode.standard,
-    this.customPostAuthPage,
-    this.tokenLabel = 'Google OAuth token',
+    required this.credentials,
+  });
+
+  final GoogleOAuthClientId clientId;
+  final AccessCredentials credentials;
+
+  factory GoogleOAuthPrivateAuth.fromJson(Map<String, dynamic> json) {
+    return GoogleOAuthPrivateAuth(
+      clientId: GoogleOAuthClientId.fromJson(_requiredMap(json, 'clientId')),
+      credentials: AccessCredentials.fromJson(
+        _requiredMap(json, 'credentials'),
+      ),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'clientId': clientId.toJson(),
+      'credentials': jsonDecode(jsonEncode(credentials.toJson())),
+    };
+  }
+
+  GoogleOAuthPrivateAuth copyWith({AccessCredentials? credentials}) {
+    return GoogleOAuthPrivateAuth(
+      clientId: clientId,
+      credentials: credentials ?? this.credentials,
+    );
+  }
+
+  static Map<String, dynamic> _requiredMap(
+    Map<String, dynamic> json,
+    String key,
+  ) {
+    final value = json[key];
+    if (value is Map) {
+      return Map<String, dynamic>.from(value.cast<String, dynamic>());
+    }
+    throw FormatException('Expected "$key" to be a JSON object.', json);
+  }
+}
+
+final class GoogleOAuthPrivateAuthClientFactory {
+  GoogleOAuthPrivateAuthClientFactory({
+    required this.privateAuthFile,
+    this.tokenLabel = 'Google OAuth private auth file',
     this.consentDescription = 'Google API access',
-    this.autoOpenBrowser = false,
     this.onMessage,
     this.httpClientFactory,
     this.refreshGracePeriod = const Duration(minutes: 5),
   });
 
-  final GoogleOAuthClientId clientId;
-  final File tokenStoreFile;
-  final bool allowUserConsent;
-  final bool forceConsent;
-  final int listenPort;
-  final String? hostedDomain;
-  final GoogleOAuthConsentMode consentMode;
-  final String? customPostAuthPage;
+  final File privateAuthFile;
   final String tokenLabel;
   final String consentDescription;
-  final bool autoOpenBrowser;
   final void Function(String message)? onMessage;
   final http.Client Function()? httpClientFactory;
   final Duration refreshGracePeriod;
@@ -94,68 +118,52 @@ final class GoogleOAuthClientFactory {
   Future<ManagedAuthClient> createManagedClient({
     required List<String> scopes,
   }) async {
-    final googleClientId = clientId.toClientId();
-    var reauthorizationReason =
-        'No cached $tokenLabel was found at ${tokenStoreFile.path}.';
-
-    if (!forceConsent) {
-      final cachedCredentials = await readCachedCredentials(tokenStoreFile);
-      if (cachedCredentials != null) {
-        reauthorizationReason =
-            'The cached $tokenLabel at ${tokenStoreFile.path} is incomplete.';
-
-        if (cachedCredentials.refreshToken != null) {
-          if (coversScopes(cachedCredentials.scopes, scopes)) {
-            final cachedClient = await _createClientFromCachedCredentials(
-              clientId: googleClientId,
-              cachedCredentials: cachedCredentials,
-            );
-            if (cachedClient != null) {
-              _writeMessage('Using cached $tokenLabel ${tokenStoreFile.path}.');
-              return cachedClient;
-            }
-            reauthorizationReason =
-                'The cached $tokenLabel at ${tokenStoreFile.path} expired or was revoked.';
-          } else {
-            reauthorizationReason =
-                'The cached $tokenLabel at ${tokenStoreFile.path} does not '
-                'cover the requested scopes.';
-            _writeMessage(
-              'Cached $tokenLabel does not cover the requested scopes; '
-              'requesting consent again.',
-            );
-          }
-        }
-      }
-    }
-
-    if (!allowUserConsent) {
-      throw GoogleOAuthAuthorizationRequiredException(
-        tokenPath: tokenStoreFile.path,
-        reason: reauthorizationReason,
-        consentDescription: consentDescription,
+    final privateAuth = await readPrivateAuth(privateAuthFile);
+    if (privateAuth == null) {
+      throw _authorizationRequired(
+        'No $tokenLabel was found at ${privateAuthFile.path}.',
       );
     }
 
-    return _createClientViaUserConsent(
-      clientId: googleClientId,
-      scopes: scopes,
-    );
+    final credentials = privateAuth.credentials;
+    if (credentials.refreshToken == null) {
+      throw _authorizationRequired(
+        'The $tokenLabel at ${privateAuthFile.path} is incomplete.',
+      );
+    }
+
+    if (!coversScopes(credentials.scopes, scopes)) {
+      throw _authorizationRequired(
+        'The $tokenLabel at ${privateAuthFile.path} does not cover the '
+        'requested scopes.',
+      );
+    }
+
+    return _createClientFromPrivateAuth(privateAuth);
   }
 
-  Future<ManagedAuthClient?> _createClientFromCachedCredentials({
-    required ClientId clientId,
-    required AccessCredentials cachedCredentials,
-  }) async {
+  Future<ManagedAuthClient> _createClientFromPrivateAuth(
+    GoogleOAuthPrivateAuth privateAuth,
+  ) async {
+    final clientId = privateAuth.clientId.toClientId();
     final baseClient = _createHttpClient();
     try {
-      final shouldRefresh = _shouldRefreshCachedCredentials(cachedCredentials);
+      final shouldRefresh = _shouldRefreshCachedCredentials(
+        privateAuth.credentials,
+      );
       final initialCredentials = shouldRefresh
-          ? await refreshCredentials(clientId, cachedCredentials, baseClient)
-          : cachedCredentials;
+          ? await refreshCredentials(
+              clientId,
+              privateAuth.credentials,
+              baseClient,
+            )
+          : privateAuth.credentials;
 
       if (shouldRefresh) {
-        await writeCredentials(tokenStoreFile, initialCredentials);
+        await writePrivateAuth(
+          privateAuthFile,
+          privateAuth.copyWith(credentials: initialCredentials),
+        );
       }
 
       final client = autoRefreshingClient(
@@ -163,7 +171,8 @@ final class GoogleOAuthClientFactory {
         initialCredentials,
         baseClient,
       );
-      _listenForCredentialUpdates(client);
+      _listenForCredentialUpdates(client, privateAuth);
+      _writeMessage('Using $tokenLabel ${privateAuthFile.path}.');
       return ManagedAuthClient(client: client, closeCallback: () {});
     } on ServerRequestFailedException catch (error) {
       baseClient.close();
@@ -171,86 +180,183 @@ final class GoogleOAuthClientFactory {
         rethrow;
       }
 
-      await deleteCachedCredentials(tokenStoreFile);
-      final message =
-          'Cached $tokenLabel at ${tokenStoreFile.path} expired or was revoked.';
       _writeMessage(
-        allowUserConsent
-            ? '$message Starting a new authorization flow.'
-            : '$message Reauthorization is required.',
+        '$tokenLabel at ${privateAuthFile.path} expired or was revoked. '
+        'Reauthorization is required.',
       );
-      return null;
+      throw _authorizationRequired(
+        'The $tokenLabel at ${privateAuthFile.path} expired or was revoked.',
+      );
     } catch (_) {
       baseClient.close();
       rethrow;
     }
   }
 
-  Future<ManagedAuthClient> _createClientViaUserConsent({
-    required ClientId clientId,
-    required List<String> scopes,
-  }) async {
-    _writeMessage('Requesting Google OAuth consent for $consentDescription.');
-
-    final client = switch (consentMode) {
-      GoogleOAuthConsentMode.standard => await _createStandardConsentClient(
-          clientId: clientId,
-          scopes: scopes,
+  void _listenForCredentialUpdates(
+    AutoRefreshingAuthClient client,
+    GoogleOAuthPrivateAuth privateAuth,
+  ) {
+    client.credentialUpdates.listen((credentials) {
+      unawaited(
+        writePrivateAuth(
+          privateAuthFile,
+          privateAuth.copyWith(credentials: credentials),
         ),
-      GoogleOAuthConsentMode.offlinePkce => await _createOfflinePkceClient(
-          clientId: clientId,
-          scopes: scopes,
-        ),
-    };
-
-    if (client.credentials.refreshToken == null) {
-      throw StateError(
-        'Google OAuth did not return a refresh token. Revoke the existing '
-        'grant for this OAuth client and rerun with forced OAuth consent.',
       );
-    }
-
-    await writeCredentials(tokenStoreFile, client.credentials);
-    _listenForCredentialUpdates(client);
-    return ManagedAuthClient(client: client, closeCallback: () {});
+    });
   }
 
-  Future<AutoRefreshingAuthClient> _createStandardConsentClient({
-    required ClientId clientId,
-    required List<String> scopes,
-  }) {
-    return clientViaUserConsent(
-      clientId,
-      scopes,
-      (authUrl) {
-        _writeMessage(
-          'Open this URL in your browser to authorize $consentDescription:',
-        );
-        _writeMessage(authUrl);
-        _writeMessage('Waiting for the OAuth redirect on localhost...');
-        _openBrowser(Uri.parse(authUrl));
-      },
-      hostedDomain: hostedDomain,
-      listenPort: listenPort,
-      customPostAuthPage: customPostAuthPage,
+  bool _shouldRefreshCachedCredentials(AccessCredentials credentials) {
+    final refreshAt = credentials.accessToken.expiry.subtract(
+      refreshGracePeriod,
+    );
+    return DateTime.now().toUtc().isAfter(refreshAt);
+  }
+
+  http.Client _createHttpClient() {
+    return httpClientFactory == null ? http.Client() : httpClientFactory!();
+  }
+
+  GoogleOAuthAuthorizationRequiredException _authorizationRequired(
+    String reason,
+  ) {
+    return GoogleOAuthAuthorizationRequiredException(
+      tokenPath: privateAuthFile.path,
+      reason: reason,
+      consentDescription: consentDescription,
     );
   }
 
-  Future<AutoRefreshingAuthClient> _createOfflinePkceClient({
-    required ClientId clientId,
+  void _writeMessage(String message) {
+    if (onMessage != null) {
+      onMessage!(message);
+      return;
+    }
+    stdout.writeln(message);
+  }
+
+  static bool coversScopes(
+    List<String> actualScopes,
+    List<String> requiredScopes,
+  ) {
+    final actual = actualScopes.toSet();
+    return requiredScopes.every(actual.contains);
+  }
+
+  static bool isRevokedRefreshTokenError(ServerRequestFailedException error) {
+    if (error.statusCode != 400) {
+      return false;
+    }
+
+    final responseContent = error.responseContent;
+    if (responseContent is Map) {
+      final errorCode = responseContent['error']?.toString().toLowerCase();
+      if (errorCode == 'invalid_grant') {
+        return true;
+      }
+    }
+
+    return error.toString().toLowerCase().contains('invalid_grant');
+  }
+
+  static Future<GoogleOAuthPrivateAuth?> readPrivateAuth(File file) async {
+    if (!await file.exists()) {
+      return null;
+    }
+
+    try {
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is! Map) {
+        return null;
+      }
+      return GoogleOAuthPrivateAuth.fromJson(
+        Map<String, dynamic>.from(decoded.cast<String, dynamic>()),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> writePrivateAuth(
+    File file,
+    GoogleOAuthPrivateAuth privateAuth,
+  ) async {
+    await file.parent.create(recursive: true);
+    const encoder = JsonEncoder.withIndent('  ');
+    await file.writeAsString('${encoder.convert(privateAuth.toJson())}\n');
+  }
+}
+
+final class GoogleOAuthPrivateAuthCreator {
+  GoogleOAuthPrivateAuthCreator({
+    required this.clientId,
+    required this.privateAuthFile,
+    this.listenPort = 0,
+    this.hostedDomain,
+    this.tokenLabel = 'Google OAuth private auth file',
+    this.consentDescription = 'Google API access',
+    this.autoOpenBrowser = true,
+    this.onMessage,
+    this.httpClientFactory,
+  });
+
+  final GoogleOAuthClientId clientId;
+  final File privateAuthFile;
+  final int listenPort;
+  final String? hostedDomain;
+  final String tokenLabel;
+  final String consentDescription;
+  final bool autoOpenBrowser;
+  final void Function(String message)? onMessage;
+  final http.Client Function()? httpClientFactory;
+
+  Future<GoogleOAuthPrivateAuth> create({
     required List<String> scopes,
+    bool force = false,
   }) async {
+    if (!force) {
+      final existing =
+          await GoogleOAuthPrivateAuthClientFactory.readPrivateAuth(
+              privateAuthFile);
+      if (existing != null &&
+          existing.credentials.refreshToken != null &&
+          GoogleOAuthPrivateAuthClientFactory.coversScopes(
+            existing.credentials.scopes,
+            scopes,
+          )) {
+        _writeMessage('Using existing $tokenLabel ${privateAuthFile.path}.');
+        return existing;
+      }
+    }
+
     final baseClient = _createHttpClient();
     try {
+      _writeMessage('Requesting Google OAuth consent for $consentDescription.');
       final credentials = await _obtainOfflineAccessCredentials(
-        clientId: clientId,
+        clientId: clientId.toClientId(),
         scopes: scopes,
         baseClient: baseClient,
       );
-      return autoRefreshingClient(clientId, credentials, baseClient);
-    } catch (_) {
+      if (credentials.refreshToken == null) {
+        throw StateError(
+          'Google OAuth did not return a refresh token. Revoke the existing '
+          'grant for this OAuth client and rerun with --force.',
+        );
+      }
+
+      final privateAuth = GoogleOAuthPrivateAuth(
+        clientId: clientId,
+        credentials: credentials,
+      );
+      await GoogleOAuthPrivateAuthClientFactory.writePrivateAuth(
+        privateAuthFile,
+        privateAuth,
+      );
+      _writeMessage('Saved $tokenLabel ${privateAuthFile.path}.');
+      return privateAuth;
+    } finally {
       baseClient.close();
-      rethrow;
     }
   }
 
@@ -306,7 +412,7 @@ final class GoogleOAuthClientFactory {
         request.response
           ..statusCode = 200
           ..headers.set('content-type', 'text/html; charset=UTF-8')
-          ..write(customPostAuthPage ?? _defaultPostAuthHtml);
+          ..write(_defaultPostAuthHtml);
         await request.response.close();
         return credentials;
       } catch (_) {
@@ -317,19 +423,6 @@ final class GoogleOAuthClientFactory {
     } finally {
       await server.close();
     }
-  }
-
-  void _listenForCredentialUpdates(AutoRefreshingAuthClient client) {
-    client.credentialUpdates.listen((credentials) {
-      unawaited(writeCredentials(tokenStoreFile, credentials));
-    });
-  }
-
-  bool _shouldRefreshCachedCredentials(AccessCredentials credentials) {
-    final refreshAt = credentials.accessToken.expiry.subtract(
-      refreshGracePeriod,
-    );
-    return DateTime.now().toUtc().isAfter(refreshAt);
   }
 
   http.Client _createHttpClient() {
@@ -361,69 +454,6 @@ final class GoogleOAuthClientFactory {
             '${error.message}');
       }
     }());
-  }
-
-  static bool coversScopes(
-    List<String> actualScopes,
-    List<String> requiredScopes,
-  ) {
-    final actual = actualScopes.toSet();
-    return requiredScopes.every(actual.contains);
-  }
-
-  static bool isRevokedRefreshTokenError(ServerRequestFailedException error) {
-    if (error.statusCode != 400) {
-      return false;
-    }
-
-    final responseContent = error.responseContent;
-    if (responseContent is Map) {
-      final errorCode = responseContent['error']?.toString().toLowerCase();
-      if (errorCode == 'invalid_grant') {
-        return true;
-      }
-    }
-
-    return error.toString().toLowerCase().contains('invalid_grant');
-  }
-
-  static Future<AccessCredentials?> readCachedCredentials(File file) async {
-    if (!await file.exists()) {
-      return null;
-    }
-
-    try {
-      final decoded = jsonDecode(await file.readAsString());
-      if (decoded is! Map) {
-        return null;
-      }
-      return AccessCredentials.fromJson(
-        Map<String, dynamic>.from(decoded.cast<String, dynamic>()),
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<void> deleteCachedCredentials(File tokenFile) async {
-    if (!await tokenFile.exists()) {
-      return;
-    }
-
-    try {
-      await tokenFile.delete();
-    } on FileSystemException {
-      // A failed cleanup should not block reauthorization.
-    }
-  }
-
-  static Future<void> writeCredentials(
-    File tokenFile,
-    AccessCredentials credentials,
-  ) async {
-    await tokenFile.parent.create(recursive: true);
-    const encoder = JsonEncoder.withIndent('  ');
-    await tokenFile.writeAsString('${encoder.convert(credentials.toJson())}\n');
   }
 
   static Uri authorizationUri({
@@ -493,6 +523,13 @@ final class GoogleOAuthClientId {
       identifier: _requiredString(json, 'identifier'),
       secret: json['secret'] as String?,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'identifier': identifier,
+      if (secret != null) 'secret': secret,
+    };
   }
 
   ClientId toClientId() => ClientId(identifier, secret);

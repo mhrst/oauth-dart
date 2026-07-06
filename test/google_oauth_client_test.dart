@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:googleapis_auth/googleapis_auth.dart';
 import 'package:oauth_dart/oauth_dart.dart';
+import 'package:oauth_dart/src/google_oauth_client.dart'
+    show GoogleOAuthPrivateAuthCreator;
 import 'package:test/test.dart';
 
 void main() {
@@ -48,17 +51,33 @@ void main() {
     });
   });
 
-  group('GoogleOAuthClientFactory', () {
-    test('recognizes cached credentials that cover requested scopes', () {
+  group('GoogleOAuthPrivateAuth', () {
+    test('round trips client id and credentials', () {
+      final auth = _privateAuth(
+        refreshToken: 'refresh-token',
+        scopes: const ['scope-a', 'scope-b'],
+      );
+
+      final decoded = GoogleOAuthPrivateAuth.fromJson(auth.toJson());
+
+      expect(decoded.clientId.identifier, 'client-id');
+      expect(decoded.clientId.secret, 'client-secret');
+      expect(decoded.credentials.refreshToken, 'refresh-token');
+      expect(decoded.credentials.scopes, ['scope-a', 'scope-b']);
+    });
+  });
+
+  group('GoogleOAuthPrivateAuthClientFactory', () {
+    test('recognizes credentials that cover requested scopes', () {
       expect(
-        GoogleOAuthClientFactory.coversScopes(
+        GoogleOAuthPrivateAuthClientFactory.coversScopes(
           const ['scope-a', 'scope-b'],
           const ['scope-b'],
         ),
         isTrue,
       );
       expect(
-        GoogleOAuthClientFactory.coversScopes(
+        GoogleOAuthPrivateAuthClientFactory.coversScopes(
           const ['scope-a'],
           const ['scope-a', 'scope-b'],
         ),
@@ -66,24 +85,18 @@ void main() {
       );
     });
 
-    test('reports missing cached token when user consent is disabled',
-        () async {
+    test('reports missing private auth file', () async {
       final tempDir = await Directory.systemTemp.createTemp('oauth_test_');
       addTearDown(() async {
         if (await tempDir.exists()) {
           await tempDir.delete(recursive: true);
         }
       });
-      final tokenPath = '${tempDir.path}/missing_token.json';
+      final privateAuthPath = '${tempDir.path}/missing_auth.json';
 
-      final factory = GoogleOAuthClientFactory(
-        clientId: const GoogleOAuthClientId(
-          identifier: 'client-id',
-          secret: 'client-secret',
-        ),
-        tokenStoreFile: File(tokenPath),
-        allowUserConsent: false,
-        tokenLabel: 'Test OAuth token',
+      final factory = GoogleOAuthPrivateAuthClientFactory(
+        privateAuthFile: File(privateAuthPath),
+        tokenLabel: 'Test private auth file',
         consentDescription: 'test access',
       );
 
@@ -94,19 +107,80 @@ void main() {
               .having(
                 (error) => error.tokenPath,
                 'tokenPath',
-                tokenPath,
+                privateAuthPath,
               )
               .having(
                 (error) => error.reason,
                 'reason',
-                contains('No cached Test OAuth token'),
+                contains('No Test private auth file'),
               ),
         ),
       );
     });
 
+    test('reports private auth file without refresh token', () async {
+      final tempDir = await Directory.systemTemp.createTemp('oauth_test_');
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+      final privateAuthFile = File('${tempDir.path}/incomplete_auth.json');
+      await privateAuthFile.writeAsString(
+        jsonEncode(_privateAuth(refreshToken: null).toJson()),
+      );
+
+      final factory = GoogleOAuthPrivateAuthClientFactory(
+        privateAuthFile: privateAuthFile,
+      );
+
+      await expectLater(
+        () => factory.createManagedClient(scopes: const ['scope-a']),
+        throwsA(
+          isA<GoogleOAuthAuthorizationRequiredException>().having(
+            (error) => error.reason,
+            'reason',
+            contains('is incomplete'),
+          ),
+        ),
+      );
+    });
+
+    test('reports private auth file that does not cover scopes', () async {
+      final tempDir = await Directory.systemTemp.createTemp('oauth_test_');
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+      final privateAuthFile = File('${tempDir.path}/scope_auth.json');
+      await privateAuthFile.writeAsString(
+        jsonEncode(
+          _privateAuth(
+            refreshToken: 'refresh-token',
+            scopes: const ['scope-a'],
+          ).toJson(),
+        ),
+      );
+
+      final factory = GoogleOAuthPrivateAuthClientFactory(
+        privateAuthFile: privateAuthFile,
+      );
+
+      await expectLater(
+        () => factory.createManagedClient(scopes: const ['scope-a', 'scope-b']),
+        throwsA(
+          isA<GoogleOAuthAuthorizationRequiredException>().having(
+            (error) => error.reason,
+            'reason',
+            contains('does not cover the requested scopes'),
+          ),
+        ),
+      );
+    });
+
     test('builds an offline consent authorization URI', () {
-      final uri = GoogleOAuthClientFactory.authorizationUri(
+      final uri = GoogleOAuthPrivateAuthCreator.authorizationUri(
         clientId: ClientId('client-id', 'client-secret'),
         scopes: const ['scope-a', 'scope-b'],
         redirectUri: 'http://localhost:1234',
@@ -125,4 +199,25 @@ void main() {
       expect(uri.queryParameters['code_challenge'], isNotEmpty);
     });
   });
+}
+
+GoogleOAuthPrivateAuth _privateAuth({
+  required String? refreshToken,
+  List<String> scopes = const ['scope-a'],
+}) {
+  return GoogleOAuthPrivateAuth(
+    clientId: const GoogleOAuthClientId(
+      identifier: 'client-id',
+      secret: 'client-secret',
+    ),
+    credentials: AccessCredentials(
+      AccessToken(
+        'Bearer',
+        'token',
+        DateTime.now().toUtc().add(const Duration(hours: 1)),
+      ),
+      refreshToken,
+      scopes,
+    ),
+  );
 }
