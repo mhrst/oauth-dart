@@ -7,12 +7,12 @@ import 'package:args/args.dart';
 import 'package:oauth_dart/src/google_oauth_client.dart';
 
 const _usageHeader = '''
-Creates a Google OAuth private auth file for non-interactive API clients.
+Creates a Google OAuth token file for non-interactive API clients.
 
 Example:
   dart tool/create_private_auth.dart \\
     --client-id client_secret.json \\
-    --private-auth .secrets/google_private_auth.json \\
+    --oauth-token .secrets/google_oauth_token.json \\
     --scope https://www.googleapis.com/auth/gmail.modify \\
     --scope https://www.googleapis.com/auth/androidpublisher
 ''';
@@ -27,7 +27,7 @@ Future<void> main(List<String> rawArgs) async {
     }
 
     final clientIdFile = File(_requiredOption(args, 'client-id'));
-    final privateAuthFile = File(_requiredOption(args, 'private-auth'));
+    final privateAuthFile = File(_requiredOption(args, 'oauth-token'));
     final scopes = args.multiOption('scope');
     if (scopes.isEmpty) {
       throw _UsageException('Provide at least one --scope.', parser);
@@ -74,8 +74,9 @@ ArgParser _parser() {
       help: 'Path to the Google OAuth desktop/web client JSON.',
     )
     ..addOption(
-      'private-auth',
-      help: 'Path where the generated private auth JSON should be stored.',
+      'oauth-token',
+      help:
+          'Path where the generated Google OAuth token JSON should be stored.',
     )
     ..addMultiOption(
       'scope',
