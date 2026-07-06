@@ -30,18 +30,19 @@ class ManagedAuthClient {
 
 class GoogleOAuthAuthorizationRequiredException implements Exception {
   GoogleOAuthAuthorizationRequiredException({
-    required this.tokenPath,
+    required this.privateAuthPath,
     required this.reason,
     required this.consentDescription,
   });
 
-  final String tokenPath;
+  final String privateAuthPath;
   final String reason;
   final String consentDescription;
 
-  String get message => '$reason Google OAuth reauthorization is required for '
-      '$consentDescription. Regenerate the private auth file at $tokenPath, '
-      'then retry.';
+  String get message =>
+      '$reason Google OAuth reauthorization is required for '
+      '$consentDescription. Regenerate the private auth file at '
+      '$privateAuthPath, then retry.';
 
   @override
   String toString() => message;
@@ -222,7 +223,7 @@ final class GoogleOAuthPrivateAuthClientFactory {
     String reason,
   ) {
     return GoogleOAuthAuthorizationRequiredException(
-      tokenPath: privateAuthFile.path,
+      privateAuthPath: privateAuthFile.path,
       reason: reason,
       consentDescription: consentDescription,
     );
@@ -318,7 +319,8 @@ final class GoogleOAuthPrivateAuthCreator {
     if (!force) {
       final existing =
           await GoogleOAuthPrivateAuthClientFactory.readPrivateAuth(
-              privateAuthFile);
+            privateAuthFile,
+          );
       if (existing != null &&
           existing.credentials.refreshToken != null &&
           GoogleOAuthPrivateAuthClientFactory.coversScopes(
@@ -444,14 +446,14 @@ final class GoogleOAuthPrivateAuthCreator {
 
     unawaited(() async {
       try {
-        await Process.start(
-          'open',
-          [uri.toString()],
-          mode: ProcessStartMode.detached,
-        );
+        await Process.start('open', [
+          uri.toString(),
+        ], mode: ProcessStartMode.detached);
       } on ProcessException catch (error) {
-        _writeMessage('Could not open the browser automatically: '
-            '${error.message}');
+        _writeMessage(
+          'Could not open the browser automatically: '
+          '${error.message}',
+        );
       }
     }());
   }
@@ -479,7 +481,8 @@ final class GoogleOAuthPrivateAuthCreator {
   }
 
   static String _createCodeVerifier() {
-    const safe = '0123456789-._~'
+    const safe =
+        '0123456789-._~'
         'abcdefghijklmnopqrstuvwxyz'
         'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     final random = Random.secure();

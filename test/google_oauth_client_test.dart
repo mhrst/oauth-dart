@@ -105,8 +105,8 @@ void main() {
         throwsA(
           isA<GoogleOAuthAuthorizationRequiredException>()
               .having(
-                (error) => error.tokenPath,
-                'tokenPath',
+                (error) => error.privateAuthPath,
+                'privateAuthPath',
                 privateAuthPath,
               )
               .having(

@@ -86,10 +86,7 @@ ArgParser _parser() {
       defaultsTo: '0',
       help: 'Localhost callback port for OAuth consent.',
     )
-    ..addOption(
-      'hosted-domain',
-      help: 'Optional Google hosted-domain hint.',
-    )
+    ..addOption('hosted-domain', help: 'Optional Google hosted-domain hint.')
     ..addFlag(
       'open-browser',
       defaultsTo: true,
@@ -129,7 +126,7 @@ Map<String, dynamic> _readJsonObject(File file) {
 
 final class _UsageException implements Exception {
   _UsageException(this.message, ArgParser parser)
-      : usage = '$_usageHeader\n${parser.usage}';
+    : usage = '$_usageHeader\n${parser.usage}';
 
   final String message;
   final String usage;
