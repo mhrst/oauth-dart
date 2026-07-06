@@ -27,7 +27,7 @@ Future<void> main(List<String> rawArgs) async {
     }
 
     final clientIdFile = File(_requiredOption(args, 'client-id'));
-    final privateAuthFile = File(_requiredOption(args, 'oauth-token'));
+    final oauthTokenFile = File(_requiredOption(args, 'oauth-token'));
     final scopes = args.multiOption('scope');
     if (scopes.isEmpty) {
       throw _UsageException('Provide at least one --scope.', parser);
@@ -38,7 +38,7 @@ Future<void> main(List<String> rawArgs) async {
     );
     await GoogleOAuthPrivateAuthCreator(
       clientId: clientId,
-      privateAuthFile: privateAuthFile,
+      oauthTokenFile: oauthTokenFile,
       listenPort: _nonNegativeInt(args.option('listen-port')!),
       hostedDomain: args.option('hosted-domain'),
       consentDescription: 'Google API access',
@@ -96,7 +96,7 @@ ArgParser _parser() {
     ..addFlag(
       'force',
       negatable: false,
-      help: 'Ignore an existing private auth file and request consent again.',
+      help: 'Ignore an existing OAuth token file and request consent again.',
     )
     ..addFlag('help', abbr: 'h', negatable: false);
 }

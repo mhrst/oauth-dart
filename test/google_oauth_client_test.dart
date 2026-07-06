@@ -53,7 +53,7 @@ void main() {
 
   group('GoogleOAuthPrivateAuth', () {
     test('round trips client id and credentials', () {
-      final auth = _privateAuth(
+      final auth = _oauthToken(
         refreshToken: 'refresh-token',
         scopes: const ['scope-a', 'scope-b'],
       );
@@ -85,18 +85,18 @@ void main() {
       );
     });
 
-    test('reports missing private auth file', () async {
+    test('reports missing OAuth token file', () async {
       final tempDir = await Directory.systemTemp.createTemp('oauth_test_');
       addTearDown(() async {
         if (await tempDir.exists()) {
           await tempDir.delete(recursive: true);
         }
       });
-      final privateAuthPath = '${tempDir.path}/missing_auth.json';
+      final oauthTokenPath = '${tempDir.path}/missing_auth.json';
 
       final factory = GoogleOAuthPrivateAuthClientFactory(
-        privateAuthFile: File(privateAuthPath),
-        tokenLabel: 'Test private auth file',
+        oauthTokenFile: File(oauthTokenPath),
+        tokenLabel: 'Test OAuth token file',
         consentDescription: 'test access',
       );
 
@@ -105,33 +105,33 @@ void main() {
         throwsA(
           isA<GoogleOAuthAuthorizationRequiredException>()
               .having(
-                (error) => error.privateAuthPath,
-                'privateAuthPath',
-                privateAuthPath,
+                (error) => error.oauthTokenPath,
+                'oauthTokenPath',
+                oauthTokenPath,
               )
               .having(
                 (error) => error.reason,
                 'reason',
-                contains('No Test private auth file'),
+                contains('No Test OAuth token file'),
               ),
         ),
       );
     });
 
-    test('reports private auth file without refresh token', () async {
+    test('reports OAuth token file without refresh token', () async {
       final tempDir = await Directory.systemTemp.createTemp('oauth_test_');
       addTearDown(() async {
         if (await tempDir.exists()) {
           await tempDir.delete(recursive: true);
         }
       });
-      final privateAuthFile = File('${tempDir.path}/incomplete_auth.json');
-      await privateAuthFile.writeAsString(
-        jsonEncode(_privateAuth(refreshToken: null).toJson()),
+      final oauthTokenFile = File('${tempDir.path}/incomplete_auth.json');
+      await oauthTokenFile.writeAsString(
+        jsonEncode(_oauthToken(refreshToken: null).toJson()),
       );
 
       final factory = GoogleOAuthPrivateAuthClientFactory(
-        privateAuthFile: privateAuthFile,
+        oauthTokenFile: oauthTokenFile,
       );
 
       await expectLater(
@@ -146,17 +146,17 @@ void main() {
       );
     });
 
-    test('reports private auth file that does not cover scopes', () async {
+    test('reports OAuth token file that does not cover scopes', () async {
       final tempDir = await Directory.systemTemp.createTemp('oauth_test_');
       addTearDown(() async {
         if (await tempDir.exists()) {
           await tempDir.delete(recursive: true);
         }
       });
-      final privateAuthFile = File('${tempDir.path}/scope_auth.json');
-      await privateAuthFile.writeAsString(
+      final oauthTokenFile = File('${tempDir.path}/scope_auth.json');
+      await oauthTokenFile.writeAsString(
         jsonEncode(
-          _privateAuth(
+          _oauthToken(
             refreshToken: 'refresh-token',
             scopes: const ['scope-a'],
           ).toJson(),
@@ -164,7 +164,7 @@ void main() {
       );
 
       final factory = GoogleOAuthPrivateAuthClientFactory(
-        privateAuthFile: privateAuthFile,
+        oauthTokenFile: oauthTokenFile,
       );
 
       await expectLater(
@@ -201,7 +201,7 @@ void main() {
   });
 }
 
-GoogleOAuthPrivateAuth _privateAuth({
+GoogleOAuthPrivateAuth _oauthToken({
   required String? refreshToken,
   List<String> scopes = const ['scope-a'],
 }) {
