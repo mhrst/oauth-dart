@@ -10,7 +10,7 @@ const _usageHeader = '''
 Creates a Google OAuth token file for non-interactive API clients.
 
 Example:
-  dart tool/create_private_auth.dart \\
+  dart run oauth_dart:create_private_auth \\
     --client-id client_secret.json \\
     --oauth-token .secrets/google_oauth_token.json \\
     --scope https://www.googleapis.com/auth/gmail.modify \\
@@ -127,7 +127,7 @@ Map<String, dynamic> _readJsonObject(File file) {
 
 final class _UsageException implements Exception {
   _UsageException(this.message, ArgParser parser)
-    : usage = '$_usageHeader\n${parser.usage}';
+      : usage = '$_usageHeader\n${parser.usage}';
 
   final String message;
   final String usage;
