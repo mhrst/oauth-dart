@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:googleapis_auth/googleapis_auth.dart';
 import 'package:oauth_dart/oauth_dart.dart';
 import 'package:oauth_dart/src/google_oauth_client.dart'
-    show GoogleOAuthPrivateAuthCreator;
+    show GoogleOAuthTokenCreator;
 import 'package:test/test.dart';
 
 void main() {
@@ -51,14 +51,14 @@ void main() {
     });
   });
 
-  group('GoogleOAuthPrivateAuth', () {
+  group('GoogleOAuthToken', () {
     test('round trips client id and credentials', () {
       final auth = _oauthToken(
         refreshToken: 'refresh-token',
         scopes: const ['scope-a', 'scope-b'],
       );
 
-      final decoded = GoogleOAuthPrivateAuth.fromJson(auth.toJson());
+      final decoded = GoogleOAuthToken.fromJson(auth.toJson());
 
       expect(decoded.clientId.identifier, 'client-id');
       expect(decoded.clientId.secret, 'client-secret');
@@ -67,17 +67,17 @@ void main() {
     });
   });
 
-  group('GoogleOAuthPrivateAuthClientFactory', () {
+  group('GoogleOAuthTokenClientFactory', () {
     test('recognizes credentials that cover requested scopes', () {
       expect(
-        GoogleOAuthPrivateAuthClientFactory.coversScopes(
+        GoogleOAuthTokenClientFactory.coversScopes(
           const ['scope-a', 'scope-b'],
           const ['scope-b'],
         ),
         isTrue,
       );
       expect(
-        GoogleOAuthPrivateAuthClientFactory.coversScopes(
+        GoogleOAuthTokenClientFactory.coversScopes(
           const ['scope-a'],
           const ['scope-a', 'scope-b'],
         ),
@@ -94,7 +94,7 @@ void main() {
       });
       final oauthTokenPath = '${tempDir.path}/missing_auth.json';
 
-      final factory = GoogleOAuthPrivateAuthClientFactory(
+      final factory = GoogleOAuthTokenClientFactory(
         oauthTokenFile: File(oauthTokenPath),
         tokenLabel: 'Test OAuth token file',
         consentDescription: 'test access',
@@ -130,7 +130,7 @@ void main() {
         jsonEncode(_oauthToken(refreshToken: null).toJson()),
       );
 
-      final factory = GoogleOAuthPrivateAuthClientFactory(
+      final factory = GoogleOAuthTokenClientFactory(
         oauthTokenFile: oauthTokenFile,
       );
 
@@ -163,7 +163,7 @@ void main() {
         ),
       );
 
-      final factory = GoogleOAuthPrivateAuthClientFactory(
+      final factory = GoogleOAuthTokenClientFactory(
         oauthTokenFile: oauthTokenFile,
       );
 
@@ -180,7 +180,7 @@ void main() {
     });
 
     test('builds an offline consent authorization URI', () {
-      final uri = GoogleOAuthPrivateAuthCreator.authorizationUri(
+      final uri = GoogleOAuthTokenCreator.authorizationUri(
         clientId: ClientId('client-id', 'client-secret'),
         scopes: const ['scope-a', 'scope-b'],
         redirectUri: 'http://localhost:1234',
@@ -201,11 +201,11 @@ void main() {
   });
 }
 
-GoogleOAuthPrivateAuth _oauthToken({
+GoogleOAuthToken _oauthToken({
   required String? refreshToken,
   List<String> scopes = const ['scope-a'],
 }) {
-  return GoogleOAuthPrivateAuth(
+  return GoogleOAuthToken(
     clientId: const GoogleOAuthClientId(
       identifier: 'client-id',
       secret: 'client-secret',

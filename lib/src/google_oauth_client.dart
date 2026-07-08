@@ -47,8 +47,8 @@ class GoogleOAuthAuthorizationRequiredException implements Exception {
   String toString() => message;
 }
 
-final class GoogleOAuthPrivateAuth {
-  const GoogleOAuthPrivateAuth({
+final class GoogleOAuthToken {
+  const GoogleOAuthToken({
     required this.clientId,
     required this.credentials,
   });
@@ -56,8 +56,8 @@ final class GoogleOAuthPrivateAuth {
   final GoogleOAuthClientId clientId;
   final AccessCredentials credentials;
 
-  factory GoogleOAuthPrivateAuth.fromJson(Map<String, dynamic> json) {
-    return GoogleOAuthPrivateAuth(
+  factory GoogleOAuthToken.fromJson(Map<String, dynamic> json) {
+    return GoogleOAuthToken(
       clientId: GoogleOAuthClientId.fromJson(_requiredMap(json, 'clientId')),
       credentials: AccessCredentials.fromJson(
         _requiredMap(json, 'credentials'),
@@ -72,8 +72,8 @@ final class GoogleOAuthPrivateAuth {
     };
   }
 
-  GoogleOAuthPrivateAuth copyWith({AccessCredentials? credentials}) {
-    return GoogleOAuthPrivateAuth(
+  GoogleOAuthToken copyWith({AccessCredentials? credentials}) {
+    return GoogleOAuthToken(
       clientId: clientId,
       credentials: credentials ?? this.credentials,
     );
@@ -91,8 +91,8 @@ final class GoogleOAuthPrivateAuth {
   }
 }
 
-final class GoogleOAuthPrivateAuthClientFactory {
-  GoogleOAuthPrivateAuthClientFactory({
+final class GoogleOAuthTokenClientFactory {
+  GoogleOAuthTokenClientFactory({
     required this.oauthTokenFile,
     this.tokenLabel = 'Google OAuth token file',
     this.consentDescription = 'Google API access',
@@ -143,7 +143,7 @@ final class GoogleOAuthPrivateAuthClientFactory {
   }
 
   Future<ManagedAuthClient> _createClientFromOAuthToken(
-    GoogleOAuthPrivateAuth oauthToken,
+    GoogleOAuthToken oauthToken,
   ) async {
     final clientId = oauthToken.clientId.toClientId();
     final baseClient = _createHttpClient();
@@ -195,7 +195,7 @@ final class GoogleOAuthPrivateAuthClientFactory {
 
   void _listenForCredentialUpdates(
     AutoRefreshingAuthClient client,
-    GoogleOAuthPrivateAuth oauthToken,
+    GoogleOAuthToken oauthToken,
   ) {
     client.credentialUpdates.listen((credentials) {
       unawaited(
@@ -260,7 +260,7 @@ final class GoogleOAuthPrivateAuthClientFactory {
     return error.toString().toLowerCase().contains('invalid_grant');
   }
 
-  static Future<GoogleOAuthPrivateAuth?> readOAuthToken(File file) async {
+  static Future<GoogleOAuthToken?> readOAuthToken(File file) async {
     if (!await file.exists()) {
       return null;
     }
@@ -270,7 +270,7 @@ final class GoogleOAuthPrivateAuthClientFactory {
       if (decoded is! Map) {
         return null;
       }
-      return GoogleOAuthPrivateAuth.fromJson(
+      return GoogleOAuthToken.fromJson(
         Map<String, dynamic>.from(decoded.cast<String, dynamic>()),
       );
     } catch (_) {
@@ -280,7 +280,7 @@ final class GoogleOAuthPrivateAuthClientFactory {
 
   static Future<void> writeOAuthToken(
     File file,
-    GoogleOAuthPrivateAuth oauthToken,
+    GoogleOAuthToken oauthToken,
   ) async {
     await file.parent.create(recursive: true);
     const encoder = JsonEncoder.withIndent('  ');
@@ -288,8 +288,8 @@ final class GoogleOAuthPrivateAuthClientFactory {
   }
 }
 
-final class GoogleOAuthPrivateAuthCreator {
-  GoogleOAuthPrivateAuthCreator({
+final class GoogleOAuthTokenCreator {
+  GoogleOAuthTokenCreator({
     required this.clientId,
     required this.oauthTokenFile,
     this.listenPort = 0,
@@ -311,17 +311,17 @@ final class GoogleOAuthPrivateAuthCreator {
   final void Function(String message)? onMessage;
   final http.Client Function()? httpClientFactory;
 
-  Future<GoogleOAuthPrivateAuth> create({
+  Future<GoogleOAuthToken> create({
     required List<String> scopes,
     bool force = false,
   }) async {
     if (!force) {
-      final existing = await GoogleOAuthPrivateAuthClientFactory.readOAuthToken(
+      final existing = await GoogleOAuthTokenClientFactory.readOAuthToken(
         oauthTokenFile,
       );
       if (existing != null &&
           existing.credentials.refreshToken != null &&
-          GoogleOAuthPrivateAuthClientFactory.coversScopes(
+          GoogleOAuthTokenClientFactory.coversScopes(
             existing.credentials.scopes,
             scopes,
           )) {
@@ -345,11 +345,11 @@ final class GoogleOAuthPrivateAuthCreator {
         );
       }
 
-      final oauthToken = GoogleOAuthPrivateAuth(
+      final oauthToken = GoogleOAuthToken(
         clientId: clientId,
         credentials: credentials,
       );
-      await GoogleOAuthPrivateAuthClientFactory.writeOAuthToken(
+      await GoogleOAuthTokenClientFactory.writeOAuthToken(
         oauthTokenFile,
         oauthToken,
       );

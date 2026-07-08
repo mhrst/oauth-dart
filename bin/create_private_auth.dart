@@ -36,7 +36,7 @@ Future<void> main(List<String> rawArgs) async {
     final clientId = GoogleOAuthClientId.fromJson(
       _readJsonObject(clientIdFile),
     );
-    await GoogleOAuthPrivateAuthCreator(
+    await GoogleOAuthTokenCreator(
       clientId: clientId,
       oauthTokenFile: oauthTokenFile,
       listenPort: _nonNegativeInt(args.option('listen-port')!),
